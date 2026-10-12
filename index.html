@@ -292,9 +292,11 @@ button{font:inherit;color:inherit}
      TWEAK ME: the easy settings. Change a number or a sentence, save, upload, refresh.
      ===================================================================== */
   var TWEAK = {
-    voiceRate: 1.3,          /* how fast the voice talks. 1 = normal, 1.5 = very fast */
-    voicePitch: 1.5,         /* how high the voice is. 1 = normal, 2 = squeaky */
+    voiceRate: 1.12,         /* how fast the voice talks. 1 = normal, 1.5 = very fast */
+    voicePitch: 1.3,         /* how high the voice is. 1 = normal, 2 = squeaky */
     maxPixelRatio: 1.25,     /* picture sharpness. Lower = smoother on slow phones (try 1 or 1.5) */
+    bakeScenery: true,       /* true = scenery is pre-painted (faster on most phones). If it feels worse on your phone, try false */
+    zombieSurge: 0.45,       /* how much Zozo surges and drops back while chasing. 0 = steady, 0.8 = wild */
     zombieMinX: 0.6,         /* how close to the left edge Zozo may go. Higher = always more visible */
     zombieFar: 2.2,          /* how far behind Zozo runs when you are safe (smaller = closer) */
     startLine: 'Go go go! Zozo is coming!',
@@ -364,10 +366,19 @@ button{font:inherit;color:inherit}
 
   /* ---------- sound and voice ---------- */
   var soundOn = true, ac = null, lastSay = '', voice = null, warmed = false, canSpeak = 'speechSynthesis' in window;
-  function pickVoice() {
+  function pickVoice() {                  /* choose the most natural-sounding English voice this phone has */
     try {
-      var en = speechSynthesis.getVoices().filter(function (v) { return /^en/i.test(v.lang); });
-      voice = en.filter(function (v) { return v.localService && /IN|GB|US/i.test(v.lang); })[0] || en.filter(function (v) { return v.localService; })[0] || en[0] || null;
+      var en = speechSynthesis.getVoices().filter(function (v) { return /^en/i.test(v.lang); }), best = null, bs = -99;
+      en.forEach(function (v) {
+        var sc = 0;
+        if (/natural|neural|online/i.test(v.name)) sc += 6;
+        if (/google/i.test(v.name)) sc += 4;
+        if (/samantha|aria|jenny|ava|allison|zira|karen|moira|tessa|veena|heera|female/i.test(v.name)) sc += 3;
+        if (/en[-_](US|GB|IN|AU)/i.test(v.lang)) sc += 1;
+        if (/compact|eloquence|novelty|whisper|bad news|albert|fred|junior|ralph|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|organ|trinoids|zarvox|superstar|jester/i.test(v.name)) sc -= 8;
+        if (sc > bs) { bs = sc; best = v; }
+      });
+      voice = best || en[0] || null;
     } catch (e) {}
   }
   if (canSpeak) { pickVoice(); try { speechSynthesis.onvoiceschanged = pickVoice; } catch (e) {} }
@@ -397,7 +408,19 @@ button{font:inherit;color:inherit}
   function roar() { tone(65, 1, 0, 'sawtooth', .18); tone(95, .8, .05, 'square', .08); tone(48, 1.1, .1, 'sawtooth', .12); }
   function pop() { tone(900, .08, 0, 'triangle', .12); tone(1300, .1, .05, 'triangle', .1); }
   function fanfare() { [523, 659, 784, 1047].forEach(function (f, i) { tone(f, .28, i * .13); }); }
+  function cheerSfx() {                   /* a quick crowd-cheer whoosh made from noise */
+    if (!soundOn) return;
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      var n = Math.floor(ac.sampleRate * .9), buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0), i;
+      for (i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / n);
+      var src = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain();
+      src.buffer = buf; fl.type = 'bandpass'; fl.frequency.setValueAtTime(900, ac.currentTime); fl.frequency.linearRampToValueAtTime(2400, ac.currentTime + .8); fl.Q.value = .8; g.gain.value = .22;
+      src.connect(fl); fl.connect(g); g.connect(ac.destination); src.start();
+    } catch (e) {}
+  }
   function tada() {
+    cheerSfx();
     [659, 784, 988, 1319].forEach(function (f, i) { tone(f, .22, i * .07, 'triangle'); });
     tone(1568, .5, .3, 'sine', .12); tone(2093, .4, .34, 'sine', .08);
   }
@@ -410,7 +433,7 @@ button{font:inherit;color:inherit}
     } catch (e) {}
   }
   function sayOne(t) {
-    var u = new SpeechSynthesisUtterance(t); u.rate = TWEAK.voiceRate; u.pitch = TWEAK.voicePitch;
+    var u = new SpeechSynthesisUtterance(t); var big = /!/.test(t); u.rate = TWEAK.voiceRate * (big ? 1.08 : 1); u.pitch = TWEAK.voicePitch + (big ? .25 : 0); u.volume = 1;
     if (voice) { u.voice = voice; u.lang = voice.lang; } else { u.lang = 'en-IN'; }
     speechSynthesis.speak(u);
   }
@@ -911,6 +934,8 @@ button{font:inherit;color:inherit}
     Q.stepT -= dt;
     if (Q.stepT <= 0 && vEff > 1 && Q.jy <= 0) { tone(Q.mi % 2 ? 140 : 120, .05, 0, 'square', .02); Q.mi++; Q.stepT = .17; }
     if (Q.dz >= 1.8) { Q.beatT -= dt; if (Q.beatT <= 0) { tone(58, .14, 0, 'sine', .3); tone(52, .16, .17, 'sine', .26); Q.beatT = .75 - .12 * Q.dz; } }
+    Q.growlT = (Q.growlT === undefined ? 6 : Q.growlT) - dt;
+    if (Q.growlT <= 0 && Q.state === 'run') { groan(); Q.growlT = 7 + Math.random() * 6; }
     Q.musicT -= dt;
     if (Q.musicT <= 0 && Q.state !== 'done') { var sc = [110, 130.8, 146.8, 164.8, 196]; tone(sc[(Q.mi >> 1) % sc.length], .3, 0, 'triangle', .05); Q.musicT = .34; }
     if (Q.d > 0 && Q.state === 'run') { Q.cleanT += dt; if (Q.cleanT > 9) { Q.d = Math.max(0, Q.d - 1); Q.cleanT = 0; } }
@@ -981,7 +1006,103 @@ button{font:inherit;color:inherit}
   }
 
   /* ---------- drawing the frame ---------- */
+  /* The scenery is painted ONCE into small hidden pictures ("tiles") and then just slid sideways every frame.
+     That is far less work for a phone than redrawing hundreds of shapes 60 times a second. */
+  var BK = { key: '', sky: null, hills: null, layers: [], ground: null, gy0: 0, spikes: null, stones: null };
+  function bakeTile(w, h, r, fn) {
+    var cvs = document.createElement('canvas'); cvs.width = Math.max(1, Math.round(w * r)); cvs.height = Math.max(1, Math.round(h * r));
+    var g = cvs.getContext('2d'); g.setTransform(r, 0, 0, r, 0, 0); fn(g, w, h); return { cv: cvs, w: w, h: h };
+  }
+  function drawTile(c, t, scroll, offX, y) {          /* paint a repeating tile so it scrolls forever */
+    var R = cv.width / W, x0 = Math.round((-offX - mod(scroll, t.w)) * R) / R;   /* snap to whole screen pixels: no blurry resampling, much cheaper */
+    for (var x = x0; x < W; x += t.w) c.drawImage(t.cv, x, y);
+  }
+  function ensureBackdrop(lv, pal) {
+    var r = cv.width / W, key = Q.i + '|' + Math.round(W) + '|' + Math.round(H) + '|' + r.toFixed(2);
+    if (BK.key === key) return; BK.key = key;
+    var gh = GROUND + 2, P = Math.max(W * 1.6, 900), M = Math.max(W * 1.2, 700), mc = pal.mid, HW = Math.max(W, 600);
+    BK.layers = [];
+    BK.sky = bakeTile(W, gh, r, function (g) {
+      var gr = g.createLinearGradient(0, 0, 0, GROUND); gr.addColorStop(0, pal.sky[0]); gr.addColorStop(1, pal.sky[1]); g.fillStyle = gr; g.fillRect(0, 0, W, gh);
+      g.fillStyle = '#fff'; STARS.forEach(function (st) { g.globalAlpha = .3 + .5 * Math.abs(Math.sin(st.p * 3)); g.beginPath(); g.arc(st.x * W, st.y * GROUND, st.r, 0, 6.3); g.fill(); }); g.globalAlpha = 1;
+      var mx = W * .8, my = GROUND * .2, mr = Math.min(W, H) * .07, mg = g.createRadialGradient(mx, my, mr * .6, mx, my, mr * 2.6);
+      mg.addColorStop(0, 'rgba(255,255,255,.35)'); mg.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = mg; g.fillRect(mx - mr * 3, my - mr * 3, mr * 6, mr * 6);
+      g.fillStyle = pal.moon; g.beginPath(); g.arc(mx, my, mr, 0, 6.3); g.fill();
+      g.fillStyle = 'rgba(0,0,0,.1)'; g.beginPath(); g.arc(mx - mr * .3, my - mr * .2, mr * .25, 0, 6.3); g.arc(mx + mr * .35, my + mr * .3, mr * .18, 0, 6.3); g.fill();
+    });
+    BK.hills = bakeTile(HW, gh, r, function (g) {
+      g.fillStyle = pal.far; g.beginPath(); g.moveTo(-10, GROUND);
+      for (var x = -10; x <= HW + 10; x += 14) g.lineTo(x, GROUND - H * .06 - H * .035 * Math.sin(x / HW * 18.85) - H * .022 * Math.sin(x / HW * 50.27 + 2));
+      g.lineTo(HW + 10, GROUND); g.closePath(); g.fill();
+    });
+    function sil(period, mul, fn, items, col) {
+      var TW = period + 400;
+      BK.layers.push({ mul: mul, off: 200, t: bakeTile(TW, gh, r, function (g) { g.translate(200, 0); silhouettes(g, TW, GROUND, 0, col, fn, period, items); }) });
+    }
+    if (lv.theme === 'house') sil(P, .05, function (cc, x, gy, s) { house(cc, x, gy, s * CH / 100, 0, 0); }, [[.3, 1.2]], pal.far);
+    if (lv.theme === 'pines') sil(P * .8, .05, function (cc, x, gy, s) { pine(cc, x, gy, s * CH / 100); }, [[.1, 1.1], [.22, 1.5], [.36, 1.0], [.5, 1.4], [.64, 1.1], [.78, 1.6], [.9, 1.2]], pal.far);
+    if (lv.theme === 'barn') sil(P, .05, function (cc, x, gy, s) { barn(cc, x, gy, s * CH / 100, 0, 0); }, [[.35, 1.2]], pal.far);
+    if (lv.theme === 'bridge') {
+      sil(P, .05, function (cc, x, gy, s) { lighthouse(cc, x, gy, s * CH / 100, 0, 0); }, [[.7, 1.1]], pal.far);
+      BK.layers.push({ mul: .075, off: 0, t: bakeTile(180, gh, r, function (g) { bridgeArches(g, 180, GROUND, 0, '#0b1633'); }) });
+    }
+    if (lv.theme === 'castle') sil(P, .05, function (cc, x, gy, s) { castle(cc, x, gy, s * CH / 100, 0, 0); }, [[.4, 1.2]], pal.far);
+    sil(P * .7, .07, function (cc, x, gy, s) { deadTree(cc, x, gy, s * CH / 120); }, [[.05, 1.1], [.4, .9], [.7, 1.3]], pal.far);
+    sil(M, .25, function (cc, x, gy, s) {
+      cc.fillStyle = mc;
+      if (lv.theme === 'pines') { pine(cc, x, gy, s * CH / 140); } else { tomb(cc, x, gy, s * CH / 100, 0, mc); }
+    }, [[.08, 1], [.3, .8], [.52, 1.1], [.72, .9], [.92, 1]], mc);
+    if (lv.theme === 'house' || lv.theme === 'bridge') sil(M, .25, function (cc, x, gy, s) { cross(cc, x, gy, s * CH / 110, 0, mc); }, [[.18, .9], [.62, 1.1]], mc);
+    BK.gy0 = Math.max(0, GROUND - H * .2);
+    BK.ground = bakeTile(W, H - BK.gy0, r, function (g) {
+      g.translate(0, -BK.gy0);
+      var fg = g.createLinearGradient(0, GROUND - H * .2, 0, GROUND + H * .02); fg.addColorStop(0, 'rgba(0,0,0,0)'); fg.addColorStop(1, pal.fog); g.globalAlpha = .5; g.fillStyle = fg; g.fillRect(0, GROUND - H * .2, W, H * .22); g.globalAlpha = 1;
+      var gg = g.createLinearGradient(0, GROUND, 0, H); gg.addColorStop(0, pal.ground[0]); gg.addColorStop(1, pal.ground[1]); g.fillStyle = gg; g.fillRect(0, GROUND, W, H - GROUND);
+      g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(0, GROUND, W, 5);
+    });
+    BK.spikes = bakeTile(264, 22, r, function (g) {
+      g.translate(0, -(GROUND - 14)); g.fillStyle = pal.far; g.beginPath(); g.moveTo(0, GROUND + 2);
+      for (var gx = 0; gx <= 286; gx += 22) { g.lineTo(gx, GROUND + 2); g.lineTo(gx + 6, GROUND - 9 - (Math.floor(gx / 22) % 3) * 3); g.lineTo(gx + 12, GROUND + 2); }
+      g.closePath(); g.fill();
+    });
+    var SW = W + 120;
+    BK.stones = bakeTile(SW, Math.max(20, H - GROUND), r, function (g) {
+      g.translate(0, -GROUND); g.fillStyle = 'rgba(0,0,0,.22)';
+      for (var st = 0; st < 26; st++) {
+        var sx = mod(st * 137.5, SW), sy = GROUND + 12 + mod(st * 53, Math.max(20, H - GROUND - 16)), rx = 10 + mod(st * 7, 14), ry = 3 + mod(st, 3);
+        g.beginPath(); g.ellipse(sx, sy, rx, ry, 0, 0, 6.3); g.ellipse(sx - SW, sy, rx, ry, 0, 0, 6.3); g.fill();
+      }
+    });
+  }
   function drawBackdrop(c, lv, pal) {
+    var sc = Q.dist, T = Q.t; ensureBackdrop(lv, pal);
+    c.drawImage(BK.sky.cv, 0, 0);
+    for (var cl = 0; cl < 3; cl++) {                                  /* drifting clouds */
+      var cxn = mod(cl * W * .5 - T * (14 + cl * 6) - sc * .01, W + 300) - 150, cyn = GROUND * (.14 + cl * .1);
+      c.fillStyle = 'rgba(20,10,50,.35)'; c.beginPath(); c.ellipse(cxn, cyn, 90, 18, 0, 0, 6.3); c.ellipse(cxn + 40, cyn - 8, 55, 16, 0, 0, 6.3); c.fill();
+    }
+    c.fillStyle = '#08030F';
+    for (var b = 0; b < 3; b++) {                                     /* bats */
+      var bx = mod(W + 60 - T * (60 + b * 24) - b * 170, W + 160) - 80, by = GROUND * (.12 + b * .08) + Math.sin(T * 3 + b) * 12, wing = Math.sin(T * 14 + b) * .7;
+      c.beginPath(); c.ellipse(bx, by, 7, 5, 0, 0, 6.3);
+      [-1, 1].forEach(function (sd) { c.moveTo(bx, by); c.quadraticCurveTo(bx + sd * 14, by - 14 * (.4 + wing), bx + sd * 26, by - 2 + wing * 6); c.quadraticCurveTo(bx + sd * 14, by + 2, bx, by + 4); });
+      c.fill();
+    }
+    drawTile(c, BK.hills, sc * .05, 0, 0);
+    for (var li = 0; li < BK.layers.length; li++) drawTile(c, BK.layers[li].t, sc * BK.layers[li].mul, BK.layers[li].off, 0);
+    var midS = sc * .25, M = Math.max(W * 1.2, 700), mc = pal.mid;      /* glowing lamps stay live so they flicker */
+    var gx = lv.theme === 'house' ? function (cc, x, gy, s) { glowLamp(cc, x, gy, s * CH / 100, T, '#2a2142'); }
+      : lv.theme === 'pines' ? function (cc, x, gy, s) { shroom(cc, x, gy, s * CH / 80, T); }
+      : lv.theme === 'barn' ? function (cc, x, gy, s) { pumpkin(cc, x, gy, s * CH / 90, T); }
+      : lv.theme === 'bridge' ? function (cc, x, gy, s) { lantern(cc, x, gy, s * CH / 100, T); }
+      : function (cc, x, gy, s) { torch(cc, x, gy, s * CH / 100, T); };
+    silhouettes(c, W, GROUND, midS * 1.15, mc, gx, M * 1.1, [[.2, 1], [.5, 1.2], [.82, .9]]);
+    c.drawImage(BK.ground.cv, 0, BK.gy0);
+    drawTile(c, BK.spikes, sc, 0, GROUND - 14);
+    drawTile(c, BK.stones, sc, 60, GROUND);
+    c.fillStyle = 'rgba(255,255,255,.07)'; for (var ln = 0; ln < 10; ln++) { var lx = mod(ln * 160 - sc * 1.1, W + 200) - 100; c.fillRect(lx, GROUND + (H - GROUND) * .5, 70, 3); }
+  }
+  function drawBackdropLive(c, lv, pal) {
     var sc = Q.dist, T = Q.t;
     var g = c.createLinearGradient(0, 0, 0, GROUND); g.addColorStop(0, pal.sky[0]); g.addColorStop(1, pal.sky[1]); c.fillStyle = g; c.fillRect(0, 0, W, GROUND + 2);
     STARS.forEach(function (s) { c.globalAlpha = .35 + .45 * Math.sin(T * 2 + s.p); c.fillStyle = '#fff'; c.beginPath(); c.arc(s.x * W, s.y * GROUND, s.r, 0, 6.3); c.fill(); });
@@ -1061,15 +1182,20 @@ button{font:inherit;color:inherit}
     var c = c2, lv = LV(), pal = lv.pal;
     c.save();
     var sh = reduced ? 0 : Q.shake * CH * .1; if (sh) c.translate((Math.random() - .5) * sh, (Math.random() - .5) * sh);
-    drawBackdrop(c, lv, pal);
+    if (TWEAK.bakeScenery) drawBackdrop(c, lv, pal); else drawBackdropLive(c, lv, pal);
     if (Q.houseX != null) drawHouse(c, CX + (Q.houseX - Q.dist), GROUND);
     /* zombie sits behind the child */
     var dzc = Math.max(-1, Q.dz), D = [TWEAK.zombieFar, TWEAK.zombieFar * .72, 1.1, .35], di = clamp(dzc, 0, 3), lo = Math.floor(di), hi = Math.min(3, lo + 1), dist = D[lo] + (D[hi] - D[lo]) * (di - lo);
     if (dzc < 0) dist = TWEAK.zombieFar + (-dzc) * .6;
     if (Q.state === 'caught') dist = Math.max(.12, .35 - (Q.dz - 3) * .4);
-    var zx = Math.max(CX - dist * CH, CH * TWEAK.zombieMinX), zb = reduced ? 0 : Math.sin(Q.t * 30) * CH * .01;
-    if (dzc >= .9) { drawShadow(c, zx - CH * .75, GROUND, CH * .5); drawZombie(c, zx - CH * .75, GROUND, CH * .9, Q.t * .9, 2.2); }
-    drawShadow(c, zx, GROUND, CH * .6); drawZombie(c, zx + zb, GROUND + (Q.state === 'caught' ? -Math.abs(Math.sin(Q.t * 9)) * CH * .1 : 0), CH, Q.t, 0);
+    /* natural chase: Zozo surges forward, drops back, surges again, like a real runner who is tiring and recovering */
+    var surge = reduced || Q.state === 'caught' ? 0 : (Math.sin(Q.t * 1.9) * .55 + Math.sin(Q.t * .63 + 1.3) * .75) * TWEAK.zombieSurge;
+    dist = Math.max(.32, dist + surge);
+    var lunge = clamp((1.25 - dist) / .9, 0, 1);                         /* 0 = far, 1 = right on your heels */
+    var zx = Math.max(CX - dist * CH, CH * TWEAK.zombieMinX), zb = reduced ? 0 : Math.sin(Q.t * 30) * CH * .01, zs = 1 + .09 * lunge;
+    if (dzc >= 1.8) { var x3 = zx - CH * (1.7 + .4 * Math.sin(Q.t * .9 + 2)); c.globalAlpha = .75; drawShadow(c, x3, GROUND, CH * .4); drawZombie(c, x3, GROUND, CH * .75, Q.t * .8, 4.1); c.globalAlpha = 1; }
+    if (dzc >= .9) { var x2 = zx - CH * (.8 + .3 * Math.sin(Q.t * 1.4 + 1)); drawShadow(c, x2, GROUND, CH * .5); drawZombie(c, x2, GROUND, CH * .9, Q.t * .9, 2.2); }
+    drawShadow(c, zx, GROUND, CH * .6 * zs); drawZombie(c, zx + zb, GROUND + (Q.state === 'caught' ? -Math.abs(Math.sin(Q.t * 9)) * CH * .1 : -lunge * Math.abs(Math.sin(Q.t * 7)) * CH * .05), CH * zs, Q.t, 0);
     /* obstacles and coins */
     var i, o, sx, T = Q.t, s = CH / 100;
     for (i = 0; i < Q.obs.length; i++) {
@@ -1113,7 +1239,8 @@ button{font:inherit;color:inherit}
   function drawShadow(c, x, y, r) { c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(x, y + 2, r, r * .2, 0, 0, 6.3); c.fill(); }
 
   /* ---------- game loop ---------- */
-  var lastTs = 0;
+  var lastTs = 0, dbg = null, dbgN = 0, dbgT = 0, dbgMs = 0;
+  if (/[?&]debug/.test(location.search)) { dbg = document.createElement('div'); dbg.style.cssText = 'position:fixed;left:50%;bottom:4px;transform:translateX(-50%);z-index:99;background:#000c;color:#0f0;font:600 12px monospace;padding:3px 8px;border-radius:6px;pointer-events:none'; document.body.appendChild(dbg); }
   function loop(ts) {
     requestAnimationFrame(loop);
     var raw = Math.min(.1, (ts - lastTs) / 1000 || 0), dt = Math.min(.05, raw); lastTs = ts;
@@ -1122,7 +1249,8 @@ button{font:inherit;color:inherit}
       slowEma = slowEma * .94 + raw * .06;
       if (slowEma > .026 && qScale > .55 && ts - lastAdapt > 1500) { qScale *= .82; lastAdapt = ts; slowEma = .018; resize(); }
     }
-    if (current === 'quest' && Q) { if (!W) resize(); if (!Q.paused) update(dt); if (Q) drawFrame(); }
+    if (current === 'quest' && Q) { if (!W) resize(); if (!Q.paused) update(dt); var t0 = performance.now(); if (Q) drawFrame(); dbgMs += performance.now() - t0; }
+    if (dbg) { dbgN++; if (ts - dbgT > 1000) { dbg.textContent = Math.round(dbgN * 1000 / (ts - dbgT)) + ' fps | draw ' + (dbgMs / dbgN).toFixed(1) + ' ms | quality ' + qScale.toFixed(2) + ' | ' + cv.width + 'x' + cv.height; dbgN = 0; dbgMs = 0; dbgT = ts; } }
     if (current === 'pick') drawPickers(ts / 1000);
   }
   requestAnimationFrame(loop);
