@@ -298,7 +298,8 @@ button{font:inherit;color:inherit}
     bakeScenery: true,       /* true = scenery is pre-painted (faster on most phones). If it feels worse on your phone, try false */
     zombieSurge: 0.45,       /* how much Zozo surges and drops back while chasing. 0 = steady, 0.8 = wild */
     zombieMinX: 0.6,         /* how close to the left edge Zozo may go. Higher = always more visible */
-    zombieFar: 2.2,          /* how far behind Zozo runs when you are safe (smaller = closer) */
+    zombieGap: 1.5,          /* the closest Zozo gets while you are still running (in body-lengths). 1 = very close, 2 = far */
+    zombieFar: 2.6,          /* how far behind Zozo runs when you are safe (smaller = closer) */
     startLine: 'Go go go! Zozo is coming!',
     caughtLine: 'Zozo got you! Go go go!',
     wrongLine: 'Uh oh! Zozo is closer!',
@@ -770,7 +771,7 @@ button{font:inherit;color:inherit}
     var r = cv.getBoundingClientRect(); if (!r.width) return;
     var dpr = Math.min(TWEAK.maxPixelRatio, window.devicePixelRatio || 1) * qScale; W = r.width; H = r.height;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); c2.setTransform(dpr, 0, 0, dpr, 0, 0);
-    CH = Math.min(H * .26, W * .24); GROUND = H * (W > H ? .84 : .70); CX = W * .30;
+    CH = Math.min(H * .26, W * .24); GROUND = H * (W > H ? .84 : .70); CX = W * (W < H * .8 ? .46 : .30);
     if (Q) { $('#turn').hidden = !(W < H * .8 && !Q.turnShown); Q.turnShown = true; }
   }
   window.addEventListener('resize', function () { if (current === 'quest') resize(); });
@@ -1185,12 +1186,12 @@ button{font:inherit;color:inherit}
     if (TWEAK.bakeScenery) drawBackdrop(c, lv, pal); else drawBackdropLive(c, lv, pal);
     if (Q.houseX != null) drawHouse(c, CX + (Q.houseX - Q.dist), GROUND);
     /* zombie sits behind the child */
-    var dzc = Math.max(-1, Q.dz), D = [TWEAK.zombieFar, TWEAK.zombieFar * .72, 1.1, .35], di = clamp(dzc, 0, 3), lo = Math.floor(di), hi = Math.min(3, lo + 1), dist = D[lo] + (D[hi] - D[lo]) * (di - lo);
+    var dzc = Math.max(-1, Q.dz), D = [TWEAK.zombieFar, TWEAK.zombieFar * .8, TWEAK.zombieGap + .5, TWEAK.zombieGap], di = clamp(dzc, 0, 3), lo = Math.floor(di), hi = Math.min(3, lo + 1), dist = D[lo] + (D[hi] - D[lo]) * (di - lo);
     if (dzc < 0) dist = TWEAK.zombieFar + (-dzc) * .6;
     if (Q.state === 'caught') dist = Math.max(.12, .35 - (Q.dz - 3) * .4);
     /* natural chase: Zozo surges forward, drops back, surges again, like a real runner who is tiring and recovering */
     var surge = reduced || Q.state === 'caught' ? 0 : (Math.sin(Q.t * 1.9) * .55 + Math.sin(Q.t * .63 + 1.3) * .75) * TWEAK.zombieSurge;
-    dist = Math.max(.32, dist + surge);
+    dist = Q.state === 'caught' ? Math.max(.32, dist) : Math.max(TWEAK.zombieGap, dist + surge);
     var lunge = clamp((1.25 - dist) / .9, 0, 1);                         /* 0 = far, 1 = right on your heels */
     var zx = Math.max(CX - dist * CH, CH * TWEAK.zombieMinX), zb = reduced ? 0 : Math.sin(Q.t * 30) * CH * .01, zs = 1 + .09 * lunge;
     if (dzc >= 1.8) { var x3 = zx - CH * (1.7 + .4 * Math.sin(Q.t * .9 + 2)); c.globalAlpha = .75; drawShadow(c, x3, GROUND, CH * .4); drawZombie(c, x3, GROUND, CH * .75, Q.t * .8, 4.1); c.globalAlpha = 1; }
