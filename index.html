@@ -293,7 +293,12 @@ button{font:inherit;color:inherit}
      ===================================================================== */
   var TWEAK = {
     voiceRate: 0.9,          /* how fast the voice talks. 1 = normal, 0.8 = slow and clear, 1.3 = very fast */
-    voicePitch: 1.15,         /* how high the voice is. 1 = normal, 2 = squeaky */
+    voicePitch: 1.15,
+    voiceByMode: {           /* the voice for each setting. rate = speed (lower = slower and clearer), pitch = how high */
+      easy:   { rate: 0.95, pitch: 1.15 },
+      normal: { rate: 0.95, pitch: 1.15 },
+      big:    { rate: 0.80, pitch: 1.05 }     /* Big Kid: the game is fast, so the voice is slower and extra clear */
+    },         /* how high the voice is. 1 = normal, 2 = squeaky */
     maxPixelRatio: 1.25,     /* picture sharpness. Lower = smoother on slow phones (try 1 or 1.5) */
     bakeScenery: true,       /* true = scenery is pre-painted (faster on most phones). If it feels worse on your phone, try false */
     zombieSurge: 0.45,       /* how much Zozo surges and drops back while chasing. 0 = steady, 0.8 = wild */
@@ -314,7 +319,7 @@ button{font:inherit;color:inherit}
     if (qs.get('dpr')) TWEAK.maxPixelRatio = parseFloat(qs.get('dpr')) || TWEAK.maxPixelRatio;
     if (qs.get('bake')) TWEAK.bakeScenery = qs.get('bake') !== '0';
     if (qs.get('cap')) TWEAK.fpsCap = parseFloat(qs.get('cap')) || 0;
-    if (qs.get('rate')) TWEAK.voiceRate = parseFloat(qs.get('rate')) || TWEAK.voiceRate;
+    if (qs.get('rate')) { var rr = parseFloat(qs.get('rate')); if (rr) for (var mk in TWEAK.voiceByMode) TWEAK.voiceByMode[mk].rate = rr; }
   } catch (e) {} })();
   var $ = function (s) { return document.querySelector(s); };
   function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
@@ -444,7 +449,8 @@ button{font:inherit;color:inherit}
     } catch (e) {}
   }
   function sayOne(t) {
-    var u = new SpeechSynthesisUtterance(t); var big = /!/.test(t); u.rate = TWEAK.voiceRate * (big ? 1.04 : 1); u.pitch = TWEAK.voicePitch + (big ? .2 : 0); u.volume = 1;
+    var u = new SpeechSynthesisUtterance(t); var big = /!/.test(t), vm = TWEAK.voiceByMode[MODE().id] || { rate: TWEAK.voiceRate, pitch: TWEAK.voicePitch };
+    u.rate = vm.rate * (big ? 1.03 : 1); u.pitch = vm.pitch + (big ? .15 : 0); u.volume = 1;
     if (voice) { u.voice = voice; u.lang = voice.lang; } else { u.lang = 'en-IN'; }
     speechSynthesis.speak(u);
   }
